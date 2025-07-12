@@ -100,8 +100,15 @@ def split_text_into_chunks(text: str, pdf_path: str, chunk_size=500, chunk_overl
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap
     )
-    doc = Document(page_content=text, metadata={"source": pdf_path.split("/")[-1]})
-    return splitter.split_documents([doc])
+
+    base_metadata = {"pdf_name": pdf_path.split("/")[-1]}
+    full_doc = Document(page_content=text, metadata=base_metadata)
+    chunks = splitter.split_documents([full_doc])
+
+    for chunk in chunks:
+        chunk.metadata.update(base_metadata)
+
+    return chunks
 
 
 # def create_embeddings_and_store_qdrant(docs, model_name="all-MiniLM-L6-v2", collection_name="pdfs_embeddings_sk"):
@@ -251,7 +258,7 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
 
             pdf_filename = file.filename
             text = await extract_text_from_pdf(file) 
-            docs = split_text_into_chunks(text, pdf_path=pdf_filename)
+            docs = split_text_into_chunks(text, pdf_path=pdf_filename)            
             all_chunks.extend(docs)
 
             upload_summaries.append({
@@ -263,7 +270,7 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
         #     print(f"\n--- Chunk {i + 1} ---\n{doc.page_content}")
 
         # num_chunks = create_embeddings_and_store(docs)
-        num_chunks = create_embeddings_and_store_qdrant(docs)
+        num_chunks = create_embeddings_and_store_qdrant(all_chunks)
 
         return JSONResponse(content={
             "message": f"Embeddings stored in Qdrant",
@@ -315,7 +322,7 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
 async def query_vector_db_qdrant(request: QueryRequest):
     try:
         # Use Qdrant utility for similarity search
-        results = qdrant_similarity_search(request.query, k=request.k)
+        results = qdrant_similarity_search(request.query, k=request.k, request.docName)
         gemini_answer = ask_gemini(request.query, results)
         return {
             "answer": gemini_answer
